@@ -1,0 +1,131 @@
+---
+title: "DATA602"
+output: html_document
+author: Kelly Shaffer, Violeta Stoyanova, Eric Pitruzzella
+date: "May 11, 2018"
+---
+
+```{r}
+#install.packages('bitops')
+library(bitops)
+#install.packages('RCurl')
+library(RCurl)
+#install.packages('dplyr')
+library(dplyr)
+#install.packages('corrplot')
+library(corrplot)
+#install.packages('caTools')
+library(caTools)
+
+url <- getURL("https://raw.githubusercontent.com/VioletaStoyanova/data602-finalproject/master/data_bcoin.csv?token=AXwBJU16Hn7phgNt_jhrTjSMnn7o5_y7ks5a9y8HwA%3D%3D")
+bitcoin <- read.csv(text = url, head = TRUE, sep = ",", stringsAsFactors = FALSE)
+
+bitcoin$ID <- seq.int(nrow(bitcoin))
+
+head(bitcoin)
+dim(bitcoin)
+class(bitcoin)
+
+set.seed(101) 
+sample = sample.split(bitcoin$Price, SplitRatio = .75)
+train = subset(bitcoin, sample == TRUE)
+test  = subset(bitcoin, sample == FALSE)
+
+nums <- train %>% select_if(is.numeric) #%>% select(-Price)#
+
+#Look at our variables and how correlated they are with price
+numscorr <- cor(nums, train$Price)
+corrplot(numscorr, method = "number")
+corrplot(numscorr, method = "color")
+
+#Just for fun, let's look at all of our non-price variables
+#against each other
+numscorr2 <- cor(nums)
+corrplot(numscorr2, method = "color")
+```
+
+Looking at our correlation plot, we can see that `miner.rev` has the highest correlation with `price`. In second place, we have `trnsct_vol`. Let's take a look at `miner.rev`.
+
+```{r}
+#install.packages('psych')
+library(psych)
+#install.packages('MASS')
+library(MASS)
+
+plot(train$Price ~ train$miner.rev)
+boxplot(train$Price ~ train$miner.rev)
+
+#by(train$Price, train$miner.rev, mean)
+#by(train$Price, train$miner.rev, length)
+
+hist(train$Price, xlab = "Price", main = "Histogram of Price")
+plot(train$miner.rev)
+
+describe(train$miner.rev)
+
+describe(train$Price)
+
+bc <- boxcox(train$Price ~ train$miner.rev)
+
+plot(bc)
+
+numscorr <- cor(nums)
+allcorr <- corrplot(numscorr, type = "full", method = "color", sig.level = 0.01, insig = "blank")
+
+numscorr3 <- nums %>% 
+  dplyr::select(hash.rate,miner.rev,trnsction.per.blk) %>% 
+  cor()
+
+invnumscorr3<-solve(numscorr3)
+
+numscorr3 %*% invnumscorr3
+invnumscorr3 %*% numscorr3
+
+fitdistr(train$miner.rev, densfun = "log-normal")
+hist(train$miner.rev, main = "Full Miner Revenue Population", xlab = "Miner Revenue")
+
+OQ1000 <- sample(train$miner.rev, 1000)
+fitdistr(OQ1000, densfun = "log-normal")
+hist(OQ1000, main = "Subset of the Miner Revenue Population", xlab = "Miner Revenue")
+```
+
+#Modeling
+
+```{r}
+#install.packages('randomForest')
+library(randomForest)
+#install.packages('ModelMetrics')
+library(ModelMetrics)
+
+train <- read.csv(text = url, head = TRUE, sep = ",", stringsAsFactors = FALSE)
+
+train$ID <- seq.int(nrow(train))
+
+train1 <- train %>% select_if(is.numeric) %>% dplyr::select(-ID)
+train1[is.na(train1)] <- -1
+fit <- randomForest(Price ~ .,data=train1, 
+                    ntree=1100, verbose=T)
+summary(fit)
+
+prd <- predict(fit,train1)
+
+test1 <- test
+
+test1[is.na(test1)] <- -1
+
+testprd <- (predict(fit,test1))
+
+testprd.df <- data.frame(testprd)
+
+testprd.df$ID <- 1:349
+names(testprd.df)[names(testprd.df)=="testprd"] <- "Price"
+testprd.df <- testprd.df[c(2, 1)]
+
+head(testprd.df)
+
+rmse(train1$Price,prd)
+
+varImpPlot(fit)
+```
+
+##As you can see, our random forest model is able to predict the price of bitcoin within $79. Not too shabby!
